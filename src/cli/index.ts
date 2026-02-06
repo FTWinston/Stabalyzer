@@ -22,9 +22,10 @@ import { scrapeBackstabbr } from '../scraper';
 import { GameStateBuilder } from '../core/gameStateBuilder';
 import { parallelSearch } from '../search/coordinator';
 import { parseCoalitions } from '../utils/coalitions';
+import { parsePriorities } from '../utils/priorities';
 import { enableVerbose, createLogger } from '../utils/logger';
 import { formatOutput } from './output';
-import { Coalition } from '../core/types';
+import { Coalition, Priority } from '../core/types';
 
 const logger = createLogger('cli');
 const program = new Command();
@@ -44,6 +45,7 @@ program
   .option('--search-time <seconds>', 'Search time in seconds (default: 60)', parseInt)
   .option('--threads <count>', 'Number of worker threads', parseInt)
   .option('--seed <seed>', 'Random seed for deterministic MCTS', parseInt)
+  .option('--priority <spec...>', 'Priority constraints, e.g. "deny England nth" or "allow Italy mao"')
   .option('--verbose', 'Enable detailed logging')
   .action(async (options) => {
     try {
@@ -59,6 +61,7 @@ program
         searchTime,
         threads,
         seed,
+        priority: prioritySpecs,
       } = options;
 
       // Parse coalitions
@@ -66,6 +69,17 @@ program
       if (coalitions.length === 0) {
         console.error('Error: No valid coalitions specified');
         process.exit(1);
+      }
+
+      // Parse priorities
+      let priorities: Priority[] = [];
+      if (prioritySpecs && prioritySpecs.length > 0) {
+        try {
+          priorities = parsePriorities(prioritySpecs);
+        } catch (error: any) {
+          console.error(`Error parsing priority: ${error.message}`);
+          process.exit(1);
+        }
       }
 
       // Find the coalition to optimize for
@@ -106,6 +120,9 @@ program
       const searchTimeMs = (searchTime ?? 60) * 1000;
       logger.info(`Max depth: ${maxDepth}, Threads: ${numThreads}, Search time: ${searchTime ?? 60}s`);
       if (seed !== undefined) logger.info(`Seed: ${seed}`);
+      if (priorities.length > 0) {
+        logger.info(`Priorities: ${priorities.map(p => `${p.action} ${p.power} ${p.provinceId}`).join(', ')}`);
+      }
 
       // Progress indicator
       let progressInterval: NodeJS.Timeout | undefined;
@@ -140,6 +157,7 @@ program
       const result = await parallelSearch({
         state: gameState,
         coalition: optimizeCoalition,
+        priorities,
         maxDepth,
         threads: numThreads,
         seed,
