@@ -31,28 +31,35 @@ function createConfig(coalition: Coalition, overrides?: Partial<MCTSConfig>): MC
 
 describe('MCTS Order Sampling Improvements', () => {
   describe('Coalition SC attack penalty', () => {
-    it('should not generate orders for coalition members attacking each other\'s SCs', () => {
-      // Setup: Germany+France coalition. Italy has A Vie near Bud (owned by Austria).
-      // With Italy+Turkey coalition, Italy should not be penalized for attacking Austria.
-      // But if Italy is in a coalition with Austria, it should be penalized.
+    it('should discourage coalition members from attacking partner SCs', () => {
+      // Setup: Germany+France coalition. France has army in Burgundy adjacent to Munich (German SC).
+      // The French army should not be predicted to attack Munich (a coalition partner's SC).
       const units: Unit[] = [
         { type: 'Army', power: 'Germany', location: { provinceId: 'mun', coast: null } },
+        { type: 'Army', power: 'Germany', location: { provinceId: 'ber', coast: null } },
+        { type: 'Fleet', power: 'Germany', location: { provinceId: 'kie', coast: null } },
+        { type: 'Army', power: 'France', location: { provinceId: 'bur', coast: null } },
         { type: 'Army', power: 'France', location: { provinceId: 'par', coast: null } },
+        { type: 'Fleet', power: 'France', location: { provinceId: 'bre', coast: null } },
+        { type: 'Fleet', power: 'England', location: { provinceId: 'lon', coast: null } },
         { type: 'Army', power: 'Italy', location: { provinceId: 'ven', coast: null } },
         { type: 'Army', power: 'Austria', location: { provinceId: 'vie', coast: null } },
-        { type: 'Army', power: 'Turkey', location: { provinceId: 'con', coast: null } },
-        { type: 'Fleet', power: 'England', location: { provinceId: 'lon', coast: null } },
         { type: 'Army', power: 'Russia', location: { provinceId: 'mos', coast: null } },
+        { type: 'Fleet', power: 'Turkey', location: { provinceId: 'ank', coast: null } },
       ];
 
       const supplyCenters = new Map<string, Power>();
       supplyCenters.set('mun', 'Germany');
+      supplyCenters.set('ber', 'Germany');
+      supplyCenters.set('kie', 'Germany');
+      supplyCenters.set('bur', 'France');
       supplyCenters.set('par', 'France');
+      supplyCenters.set('bre', 'France');
+      supplyCenters.set('lon', 'England');
       supplyCenters.set('ven', 'Italy');
       supplyCenters.set('vie', 'Austria');
-      supplyCenters.set('con', 'Turkey');
-      supplyCenters.set('lon', 'England');
       supplyCenters.set('mos', 'Russia');
+      supplyCenters.set('ank', 'Turkey');
 
       const state = GameStateBuilder.create({
         turn: { year: 1901, season: 'Spring', phase: 'Diplomacy' },
@@ -60,15 +67,34 @@ describe('MCTS Order Sampling Improvements', () => {
         supplyCenters,
       });
 
-      // With Germany+France coalition, search should produce results
+      // With Germany+France coalition, coalition orders should not attack each other's SCs
       const coalition: Coalition = { powers: ['Germany', 'France'], name: 'Germany+France' };
-      const config = createConfig(coalition, { searchTimeMs: 200 });
-      const engine = new MCTSEngine(config);
-      const result = engine.search(state);
+      let coalitionAttackingPartnerSC = false;
 
-      // Basic structure checks
-      expect(result.totalSimulations).toBeGreaterThan(0);
-      expect(result.rankedMoves.length).toBeGreaterThan(0);
+      for (let seed = 0; seed < 10; seed++) {
+        const config = createConfig(coalition, { searchTimeMs: 100, seed });
+        const engine = new MCTSEngine(config);
+        const result = engine.search(state);
+
+        for (const move of result.rankedMoves) {
+          // Check coalition orders: France should not move Bur → Mun (German SC)
+          for (const order of move.orders) {
+            if (order.type !== 'move') continue;
+            const mo = order as MoveOrder;
+            const dest = mo.destination.provinceId;
+            const scOwner = supplyCenters.get(dest);
+            if (scOwner && coalition.powers.includes(scOwner)) {
+              // Check if the moving unit belongs to a different coalition power
+              const unit = units.find(u => u.location.provinceId === mo.unit.provinceId);
+              if (unit && unit.power !== scOwner && coalition.powers.includes(unit.power)) {
+                coalitionAttackingPartnerSC = true;
+              }
+            }
+          }
+        }
+      }
+
+      expect(coalitionAttackingPartnerSC).toBe(false);
     });
   });
 

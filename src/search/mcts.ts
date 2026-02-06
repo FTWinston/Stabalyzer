@@ -18,6 +18,7 @@ import {
   GameState,
   Coalition,
   Order,
+  HoldOrder,
   MoveOrder,
   SupportOrder,
   Power,
@@ -483,9 +484,11 @@ export class MCTSEngine {
           const scoreJ = this.scorePrimaryAction(state, powers, primaryActions[j], new Set());
 
           if (scoreI >= scoreJ) {
-            primaryActions[j] = { type: 'hold', unit: (unitLegals[j][0] as any).unit };
+            const holdJ = unitLegals[j].find(o => o.type === 'hold') as HoldOrder;
+            primaryActions[j] = holdJ;
           } else {
-            primaryActions[i] = { type: 'hold', unit: (unitLegals[i][0] as any).unit };
+            const holdI = unitLegals[i].find(o => o.type === 'hold') as HoldOrder;
+            primaryActions[i] = holdI;
           }
         }
       }
@@ -600,7 +603,8 @@ export class MCTSEngine {
     claimedDests: Set<string>
   ): number {
     if (order.type === 'move') {
-      const dest = (order as MoveOrder).destination.provinceId;
+      const mo = order as MoveOrder;
+      const dest = mo.destination.provinceId;
       // Heavily penalize colliding with another friendly unit's move
       if (claimedDests.has(dest)) return -20;
 
@@ -610,9 +614,12 @@ export class MCTSEngine {
         if (owner && !this.isCoalitionPower(owner)) {
           return 5; // Capture enemy SC
         }
-        // Penalize attacking a coalition partner's SC
-        if (owner && this.isCoalitionPower(owner) && !powers.includes(owner)) {
-          return -10;
+        // Penalize attacking a coalition partner's SC (owned by a different coalition member)
+        if (owner && this.isCoalitionPower(owner)) {
+          const movingUnit = state.units.find(u => u.location.provinceId === mo.unit.provinceId);
+          if (movingUnit && movingUnit.power !== owner) {
+            return -10;
+          }
         }
         if (!owner) return 3; // Unclaimed SC
       }
