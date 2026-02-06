@@ -11,6 +11,7 @@
 import {
   SearchResult,
   RankedMove,
+  PredictedTurn,
   Coalition,
   GameState,
   Order,
@@ -198,11 +199,18 @@ function formatRankedMove(move: RankedMove, state: GameState): string {
   // Rank header
   lines.push(`${move.rank})`);
 
-  // Orders grouped by country
+  // Coalition orders grouped by country
+  lines.push('   Coalition orders:');
   if (move.orders.length > 0) {
-    lines.push(formatOrdersByCountry(move.orders, state));
+    lines.push(formatOrdersByCountry(move.orders, state, '      '));
   } else {
-    lines.push('   (no orders)');
+    lines.push('      (no orders)');
+  }
+
+  // Opponent orders grouped by country
+  if (move.opponentOrders.length > 0) {
+    lines.push('   Predicted opponent orders:');
+    lines.push(formatOrdersByCountry(move.opponentOrders, state, '      '));
   }
 
   // Expected value (long-term MCTS evaluation)
@@ -222,6 +230,22 @@ function formatRankedMove(move: RankedMove, state: GameState): string {
     `   Confidence: ${move.confidence.level} ` +
     `(visits: ${move.confidence.visits}, stdev: ${move.confidence.stdev.toFixed(2)})`
   );
+
+  // Predicted subsequent turns
+  if (move.predictedTurns.length > 0) {
+    lines.push('   Predicted subsequent turns:');
+    for (const pt of move.predictedTurns) {
+      lines.push(`      ${pt.turn.season} ${pt.turn.year} ${pt.turn.phase}:`);
+      if (pt.coalitionOrders.length > 0) {
+        lines.push('         Coalition:');
+        lines.push(formatOrdersByCountry(pt.coalitionOrders, state, '            '));
+      }
+      if (pt.opponentOrders.length > 0) {
+        lines.push('         Opponents:');
+        lines.push(formatOrdersByCountry(pt.opponentOrders, state, '            '));
+      }
+    }
+  }
 
   lines.push('');
 

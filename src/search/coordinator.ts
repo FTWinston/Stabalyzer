@@ -13,6 +13,7 @@ import * as os from 'os';
 import {
   GameState,
   Coalition,
+  Priority,
   SearchResult,
   RankedMove,
   Power,
@@ -26,6 +27,7 @@ const logger = createLogger('search-coordinator');
 export interface SearchOptions {
   state: GameState;
   coalition: Coalition;
+  priorities?: readonly Priority[];
   maxDepth: number;
   threads: number;
   seed?: number;
@@ -41,6 +43,7 @@ export async function parallelSearch(options: SearchOptions): Promise<SearchResu
   const {
     state,
     coalition,
+    priorities,
     maxDepth,
     threads,
     seed,
@@ -110,6 +113,7 @@ export async function parallelSearch(options: SearchOptions): Promise<SearchResu
           explorationConstant: 1.414,
           seed,
           coalition,
+          priorities,
         };
 
         worker.postMessage({
@@ -160,6 +164,7 @@ function singleThreadSearch(options: SearchOptions): SearchResult {
     explorationConstant: 1.414,
     seed: options.seed,
     coalition: options.coalition,
+    priorities: options.priorities,
     signal: options.signal,
   };
 

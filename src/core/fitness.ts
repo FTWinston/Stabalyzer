@@ -12,6 +12,7 @@ import {
   Coalition,
   FitnessResult,
   Power,
+  Priority,
   FITNESS_SC_WEIGHT,
   FITNESS_UNIT_WEIGHT,
   FITNESS_WIN_SCORE,
@@ -22,13 +23,24 @@ import {
 /**
  * Calculate fitness for a coalition given a game state.
  *
- * fitness = supply_centers * 1000 + units
+ * fitness = supply_centers * 1000 + units + priority_adjustments
+ *
+ * Priority adjustments:
+ *   - 'deny' priority: if the specified power has a unit in the province,
+ *     subtract FITNESS_SC_WEIGHT (equivalent to losing a supply center).
+ *   - 'allow' priority: if the specified power has a unit in the province,
+ *     add FITNESS_SC_WEIGHT (equivalent to gaining a supply center).
  *
  * @param state - Current game state
  * @param coalition - The coalition to evaluate for
+ * @param priorities - Optional priority constraints
  * @returns FitnessResult with score breakdown
  */
-export function calculateFitness(state: GameState, coalition: Coalition): FitnessResult {
+export function calculateFitness(
+  state: GameState,
+  coalition: Coalition,
+  priorities?: readonly Priority[],
+): FitnessResult {
   // Check for domination win (any single player with 18+ SC)
   const scCounts = new Map<Power, number>();
   for (const power of state.supplyCenters.values()) {
@@ -81,7 +93,23 @@ export function calculateFitness(state: GameState, coalition: Coalition): Fitnes
     u => coalition.powers.includes(u.power)
   ).length;
 
-  const score = coalitionSC * FITNESS_SC_WEIGHT + coalitionUnits * FITNESS_UNIT_WEIGHT;
+  let score = coalitionSC * FITNESS_SC_WEIGHT + coalitionUnits * FITNESS_UNIT_WEIGHT;
+
+  // Apply priority adjustments
+  if (priorities) {
+    for (const priority of priorities) {
+      const unitInProvince = state.units.some(
+        u => u.power === priority.power && u.location.provinceId === priority.provinceId
+      );
+      if (unitInProvince) {
+        if (priority.action === 'deny') {
+          score -= FITNESS_SC_WEIGHT;
+        } else if (priority.action === 'allow') {
+          score += FITNESS_SC_WEIGHT;
+        }
+      }
+    }
+  }
 
   return {
     supplyCenters: coalitionSC,

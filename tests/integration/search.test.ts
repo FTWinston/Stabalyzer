@@ -11,13 +11,16 @@ import { calculateFitness, checkWinCondition } from '../../src/core/fitness';
 import { Adjudicator } from '../../src/core/adjudicator';
 import { zobristHash } from '../../src/search/zobrist';
 import { parseCoalitions } from '../../src/utils/coalitions';
+import { parsePriority, parsePriorities } from '../../src/utils/priorities';
 import { SeededRandom } from '../../src/utils/random';
 import {
   GameState,
   Unit,
   Power,
+  Priority,
   Coalition,
   TurnInfo,
+  FITNESS_SC_WEIGHT,
   FITNESS_WIN_SCORE,
 } from '../../src/core/types';
 
@@ -326,5 +329,232 @@ describe('Integration: SeededRandom', () => {
       }
     }
     expect(allSame).toBe(false);
+  });
+});
+
+describe('Integration: Priority Parsing', () => {
+  it('should parse a deny priority', () => {
+    const priority = parsePriority('deny England nth');
+    expect(priority.action).toBe('deny');
+    expect(priority.power).toBe('England');
+    expect(priority.provinceId).toBe('nth');
+  });
+
+  it('should parse an allow priority', () => {
+    const priority = parsePriority('allow Italy mao');
+    expect(priority.action).toBe('allow');
+    expect(priority.power).toBe('Italy');
+    expect(priority.provinceId).toBe('mao');
+  });
+
+  it('should be case-insensitive for action and power', () => {
+    const priority = parsePriority('DENY england NTH');
+    expect(priority.action).toBe('deny');
+    expect(priority.power).toBe('England');
+    expect(priority.provinceId).toBe('nth');
+  });
+
+  it('should parse multiple priorities', () => {
+    const priorities = parsePriorities(['deny England nth', 'allow Italy mao']);
+    expect(priorities).toHaveLength(2);
+    expect(priorities[0].action).toBe('deny');
+    expect(priorities[1].action).toBe('allow');
+  });
+
+  it('should throw on invalid format', () => {
+    expect(() => parsePriority('deny England')).toThrow('Invalid priority format');
+  });
+
+  it('should throw on invalid action', () => {
+    expect(() => parsePriority('block England nth')).toThrow('Invalid priority action');
+  });
+
+  it('should throw on invalid power', () => {
+    expect(() => parsePriority('deny InvalidPower nth')).toThrow('Unknown power');
+  });
+
+  it('should throw on invalid province', () => {
+    expect(() => parsePriority('deny England xyz')).toThrow('Unknown province');
+  });
+});
+
+describe('Integration: Fitness with Priorities', () => {
+  it('should penalize fitness for deny priority when unit is in province', () => {
+    const units: Unit[] = [
+      { type: 'Fleet', power: 'England', location: { provinceId: 'nth', coast: null } },
+      { type: 'Army', power: 'France', location: { provinceId: 'par', coast: null } },
+    ];
+
+    const supplyCenters = new Map<string, Power>();
+    supplyCenters.set('lon', 'England');
+    supplyCenters.set('edi', 'England');
+    supplyCenters.set('lvp', 'England');
+    supplyCenters.set('par', 'France');
+
+    const state = GameStateBuilder.create({
+      turn: { year: 1901, season: 'Spring', phase: 'Diplomacy' },
+      units,
+      supplyCenters,
+    });
+
+    const coalition: Coalition = { powers: ['England'], name: 'England' };
+
+    // Without priorities
+    const fitnessNoPriority = calculateFitness(state, coalition);
+
+    // With deny priority
+    const priorities: Priority[] = [{ action: 'deny', power: 'England', provinceId: 'nth' }];
+    const fitnessWithPriority = calculateFitness(state, coalition, priorities);
+
+    expect(fitnessWithPriority.score).toBe(fitnessNoPriority.score - FITNESS_SC_WEIGHT);
+  });
+
+  it('should reward fitness for allow priority when unit is in province', () => {
+    const units: Unit[] = [
+      { type: 'Fleet', power: 'Italy', location: { provinceId: 'mao', coast: null } },
+      { type: 'Army', power: 'France', location: { provinceId: 'par', coast: null } },
+    ];
+
+    const supplyCenters = new Map<string, Power>();
+    supplyCenters.set('rom', 'Italy');
+    supplyCenters.set('par', 'France');
+
+    const state = GameStateBuilder.create({
+      turn: { year: 1901, season: 'Spring', phase: 'Diplomacy' },
+      units,
+      supplyCenters,
+    });
+
+    const coalition: Coalition = { powers: ['Italy'], name: 'Italy' };
+
+    // Without priorities
+    const fitnessNoPriority = calculateFitness(state, coalition);
+
+    // With allow priority
+    const priorities: Priority[] = [{ action: 'allow', power: 'Italy', provinceId: 'mao' }];
+    const fitnessWithPriority = calculateFitness(state, coalition, priorities);
+
+    expect(fitnessWithPriority.score).toBe(fitnessNoPriority.score + FITNESS_SC_WEIGHT);
+  });
+
+  it('should not adjust fitness when unit is not in the priority province', () => {
+    const units: Unit[] = [
+      { type: 'Fleet', power: 'England', location: { provinceId: 'eng', coast: null } },
+      { type: 'Army', power: 'France', location: { provinceId: 'par', coast: null } },
+    ];
+
+    const supplyCenters = new Map<string, Power>();
+    supplyCenters.set('lon', 'England');
+    supplyCenters.set('par', 'France');
+
+    const state = GameStateBuilder.create({
+      turn: { year: 1901, season: 'Spring', phase: 'Diplomacy' },
+      units,
+      supplyCenters,
+    });
+
+    const coalition: Coalition = { powers: ['England'], name: 'England' };
+
+    const fitnessNoPriority = calculateFitness(state, coalition);
+    const priorities: Priority[] = [{ action: 'deny', power: 'England', provinceId: 'nth' }];
+    const fitnessWithPriority = calculateFitness(state, coalition, priorities);
+
+    expect(fitnessWithPriority.score).toBe(fitnessNoPriority.score);
+  });
+});
+
+describe('Integration: MCTS with Opponent Orders and Predicted Turns', () => {
+  function createTestState(): GameState {
+    const units: Unit[] = [
+      { type: 'Fleet', power: 'England', location: { provinceId: 'lon', coast: null } },
+      { type: 'Fleet', power: 'England', location: { provinceId: 'edi', coast: null } },
+      { type: 'Army', power: 'England', location: { provinceId: 'lvp', coast: null } },
+      { type: 'Army', power: 'France', location: { provinceId: 'par', coast: null } },
+      { type: 'Army', power: 'France', location: { provinceId: 'mar', coast: null } },
+      { type: 'Fleet', power: 'France', location: { provinceId: 'bre', coast: null } },
+    ];
+
+    const supplyCenters = new Map<string, Power>();
+    supplyCenters.set('lon', 'England');
+    supplyCenters.set('edi', 'England');
+    supplyCenters.set('lvp', 'England');
+    supplyCenters.set('par', 'France');
+    supplyCenters.set('mar', 'France');
+    supplyCenters.set('bre', 'France');
+
+    return GameStateBuilder.create({
+      turn: { year: 1901, season: 'Spring', phase: 'Diplomacy' },
+      units,
+      supplyCenters,
+    });
+  }
+
+  it('should include opponent orders in results', () => {
+    const state = createTestState();
+    const coalition: Coalition = { powers: ['England'], name: 'England' };
+
+    const config: MCTSConfig = {
+      maxDepth: 2,
+      searchTimeMs: 500,
+      explorationConstant: 1.414,
+      seed: 42,
+      coalition,
+    };
+
+    const engine = new MCTSEngine(config);
+    const result = engine.search(state);
+
+    expect(result.rankedMoves.length).toBeGreaterThan(0);
+
+    for (const move of result.rankedMoves) {
+      // opponentOrders should be defined (may be empty if no opponents)
+      expect(move.opponentOrders).toBeDefined();
+      expect(Array.isArray(move.opponentOrders)).toBe(true);
+    }
+  });
+
+  it('should include predicted turns in results', () => {
+    const state = createTestState();
+    const coalition: Coalition = { powers: ['England'], name: 'England' };
+
+    const config: MCTSConfig = {
+      maxDepth: 2,
+      searchTimeMs: 500,
+      explorationConstant: 1.414,
+      seed: 42,
+      coalition,
+    };
+
+    const engine = new MCTSEngine(config);
+    const result = engine.search(state);
+
+    expect(result.rankedMoves.length).toBeGreaterThan(0);
+
+    for (const move of result.rankedMoves) {
+      // predictedTurns should be defined
+      expect(move.predictedTurns).toBeDefined();
+      expect(Array.isArray(move.predictedTurns)).toBe(true);
+    }
+  });
+
+  it('should accept priorities in MCTS config', () => {
+    const state = createTestState();
+    const coalition: Coalition = { powers: ['England'], name: 'England' };
+    const priorities: Priority[] = [{ action: 'deny', power: 'England', provinceId: 'nth' }];
+
+    const config: MCTSConfig = {
+      maxDepth: 1,
+      searchTimeMs: 500,
+      explorationConstant: 1.414,
+      seed: 42,
+      coalition,
+      priorities,
+    };
+
+    const engine = new MCTSEngine(config);
+    const result = engine.search(state);
+
+    expect(result.totalSimulations).toBeGreaterThan(0);
+    expect(result.rankedMoves.length).toBeGreaterThan(0);
   });
 });

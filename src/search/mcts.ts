@@ -22,6 +22,8 @@ import {
   SupportOrder,
   Power,
   ALL_POWERS,
+  Priority,
+  PredictedTurn,
   FitnessResult,
   SearchResult,
   RankedMove,
@@ -49,6 +51,7 @@ interface MCTSNode {
   parent: MCTSNode | null;
   children: MCTSNode[];
   orders: Order[];  // Orders that led to this state
+  opponentOrders: Order[]; // Non-coalition orders that led to this state
   power: Power;     // Which power's orders these are
 
   // Statistics
@@ -68,6 +71,7 @@ export interface MCTSConfig {
   explorationConstant: number;
   seed?: number;
   coalition: Coalition;
+  priorities?: readonly Priority[];
   signal?: AbortSignal;
 }
 
@@ -95,7 +99,7 @@ export class MCTSEngine {
     const startTime = Date.now();
 
     // Create root node
-    this.rootNode = this.createNode(state, null, [], this.config.coalition.powers[0]);
+    this.rootNode = this.createNode(state, null, [], [], this.config.coalition.powers[0]);
 
     let iterations = 0;
     const deadline = startTime + this.config.searchTimeMs;
@@ -191,7 +195,7 @@ export class MCTSEngine {
       try {
         const allOrders = this.generatePhaseOrders(node.state);
         const { newState } = this.adjudicator.resolve(node.state, allOrders);
-        const child = this.createNode(newState, node, [], node.power);
+        const child = this.createNode(newState, node, [], [], node.power);
         node.children.push(child);
         return child;
       } catch {
@@ -208,11 +212,19 @@ export class MCTSEngine {
     // Generate combined order set (coalition + sampled opponents)
     const allOrders = this.buildCompleteOrders(node.state, orders, node.power);
 
+    // Collect opponent orders
+    const opponentOrders: Order[] = [];
+    for (const [power, powerOrders] of allOrders) {
+      if (!this.config.coalition.powers.includes(power)) {
+        opponentOrders.push(...powerOrders);
+      }
+    }
+
     // Resolve orders
     const { newState } = this.adjudicator.resolve(node.state, allOrders);
 
     // Create child node
-    const child = this.createNode(newState, node, orders, node.power);
+    const child = this.createNode(newState, node, orders, opponentOrders, node.power);
     node.children.push(child);
 
     return child;
@@ -231,7 +243,7 @@ export class MCTSEngine {
       // Check terminal conditions
       const win = checkWinCondition(state);
       if (win.winner) {
-        const fitness = calculateFitness(state, this.config.coalition);
+        const fitness = calculateFitness(state, this.config.coalition, this.config.priorities);
         return this.normalizeScore(fitness.score);
       }
 
@@ -247,7 +259,7 @@ export class MCTSEngine {
     }
 
     // Evaluate terminal state
-    const fitness = calculateFitness(state, this.config.coalition);
+    const fitness = calculateFitness(state, this.config.coalition, this.config.priorities);
     return this.normalizeScore(fitness.score);
   }
 
@@ -774,6 +786,7 @@ export class MCTSEngine {
     state: GameState,
     parent: MCTSNode | null,
     orders: Order[],
+    opponentOrders: Order[],
     power: Power
   ): MCTSNode {
     const hash = zobristHash(state);
@@ -800,6 +813,7 @@ export class MCTSEngine {
       parent,
       children: [],
       orders,
+      opponentOrders,
       power,
       visits: 0,
       totalValue: 0,
@@ -827,7 +841,7 @@ export class MCTSEngine {
 
     for (let i = 0; i < Math.min(sorted.length, 3); i++) {
       const child = sorted[i];
-      const fitness = calculateFitness(child.state, this.config.coalition);
+      const fitness = calculateFitness(child.state, this.config.coalition, this.config.priorities);
 
       const meanValue = child.totalValue / child.visits;
       const variance = child.visits > 1
@@ -837,9 +851,14 @@ export class MCTSEngine {
 
       const confidence = this.determineConfidence(child.visits, stdev);
 
+      // Extract predicted subsequent turns by following best children
+      const predictedTurns = this.extractPredictedTurns(child);
+
       results.push({
         rank: i + 1,
         orders: child.orders,
+        opponentOrders: child.opponentOrders,
+        predictedTurns,
         fitness,
         score: fitness.score,
         expectedValue: meanValue,
@@ -848,6 +867,36 @@ export class MCTSEngine {
     }
 
     return results;
+  }
+
+  /**
+   * Extract predicted moves for subsequent turns by following the most-visited path.
+   */
+  private extractPredictedTurns(node: MCTSNode): PredictedTurn[] {
+    const turns: PredictedTurn[] = [];
+    let current = node;
+
+    while (current.children.length > 0) {
+      // Follow the most-visited child
+      const best = current.children
+        .filter(c => c.visits > 0)
+        .sort((a, b) => b.visits - a.visits)[0];
+
+      if (!best || best.visits === 0) break;
+
+      // Only include nodes with actual orders (skip non-Diplomacy pass-throughs)
+      if (best.orders.length > 0 || best.opponentOrders.length > 0) {
+        turns.push({
+          turn: best.state.turn,
+          coalitionOrders: best.orders,
+          opponentOrders: best.opponentOrders,
+        });
+      }
+
+      current = best;
+    }
+
+    return turns;
   }
 
   /**

@@ -153,6 +153,23 @@ export interface Coalition {
   readonly name: string;
 }
 
+// ─── Priority ────────────────────────────────────────────────────────
+/**
+ * A priority constraint that affects fitness evaluation.
+ *
+ * - 'deny': penalizes fitness (equivalent to losing a supply center) if the
+ *   specified power has a unit in the specified province.
+ * - 'allow': rewards fitness (equivalent to gaining a supply center) if the
+ *   specified power has a unit in the specified province.
+ */
+export type PriorityAction = 'deny' | 'allow';
+
+export interface Priority {
+  readonly action: PriorityAction;
+  readonly power: Power;
+  readonly provinceId: string;
+}
+
 // ─── Fitness ─────────────────────────────────────────────────────────
 /**
  * Fitness function:
@@ -202,10 +219,19 @@ export interface SearchResult {
 export interface RankedMove {
   readonly rank: number;
   readonly orders: readonly Order[];
+  readonly opponentOrders: readonly Order[];      // Most probable non-coalition moves
+  readonly predictedTurns: readonly PredictedTurn[]; // Predicted moves for subsequent turns
   readonly fitness: FitnessResult;
   readonly score: number;
   readonly expectedValue: number; // MCTS expected long-term value (0-1)
   readonly confidence: ConfidenceInfo;
+}
+
+/** Predicted moves for a subsequent turn in the search tree. */
+export interface PredictedTurn {
+  readonly turn: TurnInfo;
+  readonly coalitionOrders: readonly Order[];
+  readonly opponentOrders: readonly Order[];
 }
 
 export interface ConfidenceInfo {
