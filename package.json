@@ -1,0 +1,38 @@
+{
+  "name": "stabalyzer",
+  "version": "1.0.0",
+  "description": "Diplomacy game analyzer using Monte Carlo Tree Search — scrapes Backstabbr and recommends optimal orders for player coalitions",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "stabalyzer": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli/index.js",
+    "dev": "ts-node src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:datc": "vitest run --project datc",
+    "test:integration": "vitest run --project integration",
+    "lint": "eslint src tests --ext .ts",
+    "clean": "rimraf dist"
+  },
+  "keywords": ["diplomacy", "backstabbr", "mcts", "monte-carlo", "game-analysis"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "commander": "^12.0.0",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
