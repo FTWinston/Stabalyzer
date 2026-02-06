@@ -70,6 +70,8 @@ export function parsePriorities(specs: string[]): Priority[] {
 
 /**
  * Normalize a power name to the canonical form.
+ * Accepts both standard names (e.g. "England") and common aliases
+ * (e.g. "austria-hungary" for Austria).
  */
 function normalizePowerName(name: string): Power | null {
   const lower = name.toLowerCase().trim();
