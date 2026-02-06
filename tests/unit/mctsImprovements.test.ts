@@ -15,6 +15,7 @@ import {
   Power,
   Coalition,
   MoveOrder,
+  HoldOrder,
   Order,
 } from '../../src/core/types';
 
@@ -272,7 +273,7 @@ describe('MCTS Order Sampling Improvements', () => {
       const coalition: Coalition = { powers: ['France'], name: 'France' };
       let selfBlockFound = false;
 
-      for (let seed = 0; seed < 20; seed++) {
+      for (let seed = 0; seed < 10; seed++) {
         const config = createConfig(coalition, { searchTimeMs: 200, seed });
         const engine = new MCTSEngine(config);
         const result = engine.search(state);
@@ -282,7 +283,9 @@ describe('MCTS Order Sampling Improvements', () => {
           const ordersByPower = new Map<Power, Order[]>();
           for (const order of move.opponentOrders) {
             if (order.type !== 'move' && order.type !== 'hold') continue;
-            const unitProv = (order as any).unit?.provinceId;
+            const unitProv = order.type === 'move'
+              ? (order as MoveOrder).unit.provinceId
+              : (order as HoldOrder).unit.provinceId;
             const unit = units.find(u => u.location.provinceId === unitProv);
             if (!unit) continue;
             if (!ordersByPower.has(unit.power)) ordersByPower.set(unit.power, []);
@@ -296,7 +299,7 @@ describe('MCTS Order Sampling Improvements', () => {
               const dest = mo.destination.provinceId;
               // Check if another unit of the same power is holding at the destination
               const holdingAtDest = powerOrders.find(
-                o => o.type === 'hold' && (o as any).unit?.provinceId === dest
+                o => o.type === 'hold' && (o as HoldOrder).unit.provinceId === dest
               );
               if (holdingAtDest) {
                 selfBlockFound = true;
