@@ -196,7 +196,19 @@ export class MCTSEngine {
       try {
         const allOrders = this.generatePhaseOrders(node.state);
         const { newState } = this.adjudicator.resolve(node.state, allOrders);
-        const child = this.createNode(newState, node, [], [], node.power);
+
+        // Separate coalition and opponent orders so they appear in output
+        const coalitionOrders: Order[] = [];
+        const opponentOrders: Order[] = [];
+        for (const [power, powerOrders] of allOrders) {
+          if (this.config.coalition.powers.includes(power)) {
+            coalitionOrders.push(...powerOrders);
+          } else {
+            opponentOrders.push(...powerOrders);
+          }
+        }
+
+        const child = this.createNode(newState, node, coalitionOrders, opponentOrders, node.power);
         node.children.push(child);
         return child;
       } catch {
@@ -607,6 +619,10 @@ export class MCTSEngine {
       const dest = mo.destination.provinceId;
       // Heavily penalize colliding with another friendly unit's move
       if (claimedDests.has(dest)) return -20;
+
+      // Heavily penalize moving into a province occupied by a friendly/allied unit
+      const occupant = state.units.find(u => u.location.provinceId === dest);
+      if (occupant && powers.includes(occupant.power)) return -20;
 
       const isSC = state.supplyCenters.has(dest) || this.isSupplyCenter(dest);
       if (isSC) {
