@@ -27,9 +27,3 @@ jobs:
 
       - name: Run all tests
         run: npm test
-
-      - name: Run DATC tests
-        run: npx vitest run --project datc
-
-      - name: Run integration tests
-        run: npx vitest run --project integration
