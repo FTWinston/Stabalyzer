@@ -463,6 +463,34 @@ export class MCTSEngine {
       primaryActions.push(selected);
     }
 
+    // ── Phase 1b: Detect and resolve position swaps ──────────────────
+    // Two units attempting to swap positions (A→B, B→A) will always
+    // bounce in Diplomacy (unless convoyed). Replace the lower-scored
+    // swap participant with a hold.
+    for (let i = 0; i < primaryActions.length; i++) {
+      if (primaryActions[i].type !== 'move') continue;
+      const destI = (primaryActions[i] as MoveOrder).destination.provinceId;
+
+      for (let j = i + 1; j < primaryActions.length; j++) {
+        if (primaryActions[j].type !== 'move') continue;
+        const destJ = (primaryActions[j] as MoveOrder).destination.provinceId;
+
+        // Check for swap: unit i → unit j's province AND unit j → unit i's province
+        if (destI === unitProvs[j] && destJ === unitProvs[i]) {
+          // Swap detected — replace one of them with a hold
+          // Keep the move that is more valuable (re-score without dest conflicts)
+          const scoreI = this.scorePrimaryAction(state, powers, primaryActions[i], new Set());
+          const scoreJ = this.scorePrimaryAction(state, powers, primaryActions[j], new Set());
+
+          if (scoreI >= scoreJ) {
+            primaryActions[j] = { type: 'hold', unit: (unitLegals[j][0] as any).unit };
+          } else {
+            primaryActions[i] = { type: 'hold', unit: (unitLegals[i][0] as any).unit };
+          }
+        }
+      }
+    }
+
     // ── Phase 2: Consider upgrading to support/convoy ─────────────────
     // Build a LIVE lookup of current decisions — updated as units upgrade.
     const actionByProv = new Map<string, Order>();
@@ -581,6 +609,10 @@ export class MCTSEngine {
         const owner = state.supplyCenters.get(dest);
         if (owner && !this.isCoalitionPower(owner)) {
           return 5; // Capture enemy SC
+        }
+        // Penalize attacking a coalition partner's SC
+        if (owner && this.isCoalitionPower(owner) && !powers.includes(owner)) {
+          return -10;
         }
         if (!owner) return 3; // Unclaimed SC
       }
@@ -887,7 +919,10 @@ export class MCTSEngine {
       // Only include nodes with actual orders (skip non-Diplomacy pass-throughs)
       if (best.orders.length > 0 || best.opponentOrders.length > 0) {
         turns.push({
-          turn: best.state.turn,
+          // Use parent's state turn — orders were issued in the parent's phase
+          turn: current.state.turn,
+          // Include the parent's state so unit lookups work for display
+          state: current.state,
           coalitionOrders: best.orders,
           opponentOrders: best.opponentOrders,
         });

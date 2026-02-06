@@ -238,11 +238,11 @@ function formatRankedMove(move: RankedMove, state: GameState): string {
       lines.push(`      ${pt.turn.season} ${pt.turn.year} ${pt.turn.phase}:`);
       if (pt.coalitionOrders.length > 0) {
         lines.push('         Coalition:');
-        lines.push(formatOrdersByCountry(pt.coalitionOrders, state, '            '));
+        lines.push(formatOrdersByCountry(pt.coalitionOrders, pt.state, '            '));
       }
       if (pt.opponentOrders.length > 0) {
         lines.push('         Opponents:');
-        lines.push(formatOrdersByCountry(pt.opponentOrders, state, '            '));
+        lines.push(formatOrdersByCountry(pt.opponentOrders, pt.state, '            '));
       }
     }
   }
