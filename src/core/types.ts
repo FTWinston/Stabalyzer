@@ -230,6 +230,7 @@ export interface RankedMove {
 /** Predicted moves for a subsequent turn in the search tree. */
 export interface PredictedTurn {
   readonly turn: TurnInfo;
+  readonly state: GameState;
   readonly coalitionOrders: readonly Order[];
   readonly opponentOrders: readonly Order[];
 }
